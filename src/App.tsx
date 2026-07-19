@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Menu, SendHorizontal, MessageSquare, AlertCircle, RefreshCw, Sparkles, ChevronDown, Copy, Check, Trash2, Clipboard } from 'lucide-react';
+import { Menu, SendHorizontal, MessageSquare, AlertCircle, RefreshCw, Sparkles, ChevronDown, Copy, Check, Trash2, Clipboard, X, Search, TextCursor, FileText } from 'lucide-react';
 import { Chat, Message, ModelId, ModelParameters, KIE_MODELS } from './types';
 import Sidebar from './components/Sidebar';
 import ModelSettings from './components/ModelSettings';
@@ -33,6 +33,13 @@ export default function App() {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [msgToDelete, setMsgToDelete] = useState<string | null>(null);
   const [historyCopied, setHistoryCopied] = useState(false);
+
+  // --- Convenient Selection Feature States ---
+  const [selectedSelectionMsg, setSelectedSelectionMsg] = useState<Message | null>(null);
+  const [selectionSearch, setSelectionSearch] = useState('');
+  const [selectionTab, setSelectionTab] = useState<'plain' | 'paragraphs' | 'markdown'>('plain');
+  const [selectionCopiedIndex, setSelectionCopiedIndex] = useState<number | null>(null);
+  const [selectionAllCopied, setSelectionAllCopied] = useState(false);
 
   // --- Kie API Key & Balance States ---
   const [kieApiKey, setKieApiKey] = useState<string>(() => {
@@ -171,6 +178,24 @@ export default function App() {
       scrollToBottom('smooth');
     }
   }, [streamingText]);
+
+  // --- Helper to highlight text search matches ---
+  const highlightText = (text: string, search: string) => {
+    if (!search.trim()) return text;
+    const escapedSearch = search.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const parts = text.split(new RegExp(`(${escapedSearch})`, 'gi'));
+    return (
+      <>
+        {parts.map((part, i) => 
+          part.toLowerCase() === search.toLowerCase() ? (
+            <mark key={i} className="bg-yellow-100 text-slate-900 font-semibold px-0.5 rounded-sm">{part}</mark>
+          ) : (
+            part
+          )
+        )}
+      </>
+    );
+  };
 
   // Force scroll when active chat switches
   useEffect(() => {
@@ -663,6 +688,21 @@ export default function App() {
                       <span className="text-slate-200 text-[10px] select-none">|</span>
                       
                       <button
+                        onClick={() => {
+                          setSelectedSelectionMsg(msg);
+                          setSelectionSearch('');
+                          setSelectionTab('plain');
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] hover:text-sky-600 text-slate-400 font-medium transition-colors cursor-pointer touch-manipulation"
+                        title="Удобное выделение и поиск текста"
+                      >
+                        <TextCursor className="h-3 w-3" />
+                        <span>Выделить</span>
+                      </button>
+                      
+                      <span className="text-slate-200 text-[10px] select-none">|</span>
+                      
+                      <button
                         onClick={() => setMsgToDelete(msg.id)}
                         className="inline-flex items-center gap-1 text-[11px] hover:text-red-500 text-slate-400 font-medium transition-colors cursor-pointer touch-manipulation"
                         title="Удалить сообщение"
@@ -820,6 +860,224 @@ export default function App() {
                 Удалить
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. CONVENIENT TEXT SELECTION & READER MODAL */}
+      {selectedSelectionMsg && (
+        <div className="absolute inset-0 bg-slate-950/65 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-5 animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-2xl h-[85vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden">
+            
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/60 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 bg-sky-50 text-sky-600 rounded-xl">
+                  <TextCursor className="h-4.5 w-4.5" />
+                </div>
+                <div className="text-left">
+                  <h4 className="text-[13.5px] font-bold text-slate-950 font-display">Выделение и поиск текста</h4>
+                  <p className="text-[10.5px] text-slate-400">Удобное выделение длинных фрагментов без прокрутки всей страницы</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedSelectionMsg(null);
+                  setSelectionSearch('');
+                  setSelectionTab('plain');
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all cursor-pointer"
+                title="Закрыть"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Toolbar: Search and Tabs */}
+            <div className="p-4 border-b border-slate-100 bg-white space-y-3.5 shrink-0">
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Быстрый поиск ключевых слов..."
+                  value={selectionSearch}
+                  onChange={(e) => setSelectionSearch(e.target.value)}
+                  className="w-full bg-slate-50 hover:bg-slate-100/70 focus:bg-white text-xs pl-9 pr-8 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-left placeholder:text-slate-400 text-slate-800"
+                />
+                {selectionSearch && (
+                  <button
+                    onClick={() => setSelectionSearch('')}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Tabs */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-0.5">
+                <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200/50 self-start">
+                  <button
+                    onClick={() => setSelectionTab('plain')}
+                    className={`px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      selectionTab === 'plain'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <FileText className="h-3.5 w-3.5 text-slate-500" />
+                    <span>Весь текст</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectionTab('paragraphs')}
+                    className={`px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      selectionTab === 'paragraphs'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <Menu className="h-3.5 w-3.5 text-slate-500 rotate-90" />
+                    <span>По абзацам</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectionTab('markdown')}
+                    className={`px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                      selectionTab === 'markdown'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-slate-500" />
+                    <span>Разметка</span>
+                  </button>
+                </div>
+
+                {/* Copy whole message */}
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(selectedSelectionMsg.content);
+                    setSelectionAllCopied(true);
+                    setTimeout(() => setSelectionAllCopied(false), 2000);
+                  }}
+                  className="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs border border-sky-100"
+                >
+                  {selectionAllCopied ? (
+                    <>
+                      <Check className="h-3.5 w-3.5 text-green-600" />
+                      <span className="text-green-700">Скопировано всё!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5" />
+                      <span>Копировать всё</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
+              {selectionTab === 'plain' && (
+                <div className="h-full flex flex-col space-y-2">
+                  <div className="text-[10px] text-slate-400 font-mono flex justify-between px-1">
+                    <span>Выделите нужный фрагмент курсором или нажмите Ctrl+A</span>
+                    <span>Символов: {selectedSelectionMsg.content.length}</span>
+                  </div>
+                  <textarea
+                    readOnly
+                    value={selectedSelectionMsg.content}
+                    className="flex-1 w-full p-4 font-mono text-[12px] leading-relaxed text-slate-800 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-0 resize-none selection:bg-sky-100 selection:text-slate-950 shadow-xs"
+                    placeholder="Пустое сообщение"
+                  />
+                </div>
+              )}
+
+              {selectionTab === 'paragraphs' && (() => {
+                const rawParagraphs = selectedSelectionMsg.content.split(/\n\n+/);
+                const filtered = rawParagraphs
+                  .map((p, idx) => ({ text: p.trim(), originalIndex: idx }))
+                  .filter(item => item.text.length > 0 && 
+                    (!selectionSearch || item.text.toLowerCase().includes(selectionSearch.toLowerCase()))
+                  );
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center py-16 text-slate-400 space-y-2">
+                      <Search className="h-8 w-8 stroke-[1.2] text-slate-300" />
+                      <p className="text-xs font-medium">Ничего не найдено по этому поисковому слову</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3 text-left">
+                    {filtered.map((item, index) => {
+                      const isCopied = selectionCopiedIndex === item.originalIndex;
+                      
+                      return (
+                        <div 
+                          key={index}
+                          className="bg-white border border-slate-200/60 rounded-xl p-3.5 hover:shadow-xs hover:border-slate-300 transition-all group/para relative"
+                        >
+                          <div className="flex justify-between items-center gap-3 mb-2">
+                            <span className="text-[10px] font-bold text-slate-400 font-mono bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                              Блок #{item.originalIndex + 1}
+                            </span>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(item.text);
+                                setSelectionCopiedIndex(item.originalIndex);
+                                setTimeout(() => setSelectionCopiedIndex(null), 2000);
+                              }}
+                              className="px-2 py-1 bg-slate-50 hover:bg-sky-50 text-slate-500 hover:text-sky-600 rounded-md text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 border border-slate-100"
+                            >
+                              {isCopied ? (
+                                <>
+                                  <Check className="h-3 w-3 text-green-500" />
+                                  <span className="text-green-600">Скопировано</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-3 w-3" />
+                                  <span>Скопировать блок</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                          <p className="text-[12px] text-slate-800 leading-relaxed whitespace-pre-wrap selection:bg-sky-100 selection:text-slate-950">
+                            {highlightText(item.text, selectionSearch)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {selectionTab === 'markdown' && (
+                <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-xs max-w-full overflow-x-hidden selection:bg-sky-100 selection:text-slate-950 text-left">
+                  <Markdown content={selectedSelectionMsg.content} />
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50/60 flex justify-between items-center shrink-0 text-[10.5px] text-slate-400 font-medium">
+              <span>💡 В режиме «Весь текст» можно использовать стандартный выбор мышью.</span>
+              <button
+                onClick={() => {
+                  setSelectedSelectionMsg(null);
+                  setSelectionSearch('');
+                  setSelectionTab('plain');
+                }}
+                className="px-3.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Закрыть
+              </button>
+            </div>
+
           </div>
         </div>
       )}
