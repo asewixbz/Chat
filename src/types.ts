@@ -138,12 +138,24 @@ export interface ModelParameters {
   webSearch?: boolean;
 }
 
+export type ChatMode = 'chat' | 'agent';
+
+export interface MessageToolCall {
+  id: string;
+  tool: string;
+  arguments: any;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'waiting_approval';
+  output?: string;
+  error?: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'model';
   content: string;
   timestamp: number;
   isSystem?: boolean;
+  toolCalls?: MessageToolCall[];
 }
 
 export interface Chat {
@@ -154,4 +166,54 @@ export interface Chat {
   messages: Message[];
   createdAt: number;
   updatedAt: number;
+  mode?: ChatMode;
+  workspacePath?: string;
+  workspaceId?: string;
 }
+
+export interface FileNode {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  size?: number;
+  updatedAt?: string;
+  children?: FileNode[];
+}
+
+export interface WorkspaceInfo {
+  id: string;
+  name: string;
+  rootPath: string;
+  status: 'available' | 'indexing' | 'error';
+  settings: {
+    shell: string;
+    maxFileSizeBytes: number;
+    ignoredPaths: string[];
+    approvalPolicy: 'strict' | 'safe-auto' | 'full-auto';
+  };
+}
+
+export interface GitFileStatus {
+  path: string;
+  status: 'modified' | 'added' | 'deleted' | 'untracked' | 'staged';
+}
+
+export interface GitInfo {
+  branch: string;
+  clean: boolean;
+  files: GitFileStatus[];
+  ahead: number;
+  behind: number;
+}
+
+export interface PendingApproval {
+  id: string;
+  workspaceId: string;
+  runId?: string;
+  tool: string;
+  arguments: any;
+  reason: string;
+  createdAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+}
+

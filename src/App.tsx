@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Menu, SendHorizontal, MessageSquare, AlertCircle, RefreshCw, Sparkles, ChevronDown, Copy, Check, Trash2, Clipboard, X, Search, TextCursor, FileText } from 'lucide-react';
-import { Chat, Message, ModelId, ModelParameters, KIE_MODELS } from './types';
+import { Menu, SendHorizontal, MessageSquare, AlertCircle, RefreshCw, Sparkles, ChevronDown, Copy, Check, Trash2, Clipboard, X, Search, TextCursor, FileText, FolderTree, Terminal, Code2, Bot } from 'lucide-react';
+import { Chat, ChatMode, Message, ModelId, ModelParameters, KIE_MODELS } from './types';
 import Sidebar from './components/Sidebar';
+import RightSidebar from './components/RightSidebar';
 import ModelSettings from './components/ModelSettings';
 import Markdown from './components/Markdown';
 
@@ -20,7 +21,9 @@ export default function App() {
   // --- States ---
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeMode, setActiveMode] = useState<ChatMode>('chat');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -28,6 +31,7 @@ export default function App() {
   const [streamingText, setStreamingText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
   
   // --- Copy & Delete Features States ---
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -218,18 +222,38 @@ export default function App() {
     return params;
   };
 
-  // --- Create Chat Action ---
-  const createNewChat = (modelId: ModelId = 'gpt-5-6-sol') => {
-    const defaultParams = getDefaultParamsForModel(modelId);
+  // --- Mode Switching Handler ---
+  const handleSelectMode = (newMode: ChatMode) => {
+    setActiveMode(newMode);
+    // Find existing chat in new mode
+    const matchingChat = chats.find(c => {
+      if (newMode === 'agent') return c.mode === 'agent';
+      return !c.mode || c.mode === 'chat';
+    });
 
+    if (matchingChat) {
+      setActiveChatId(matchingChat.id);
+    } else {
+      createNewChat('gpt-5-6-sol', newMode);
+    }
+  };
+
+  // --- Create Chat Action ---
+  const createNewChat = (modelId: ModelId = 'gpt-5-6-sol', mode: ChatMode = activeMode) => {
+    const defaultParams = getDefaultParamsForModel(modelId);
+    const isAgent = mode === 'agent';
+
+    const agentCount = chats.filter(c => c.mode === 'agent').length + 1;
     const newChat: Chat = {
       id: generateId(),
-      title: 'Новый диалог',
+      title: isAgent ? `Проект #${agentCount}` : 'Новый диалог',
       modelId,
       parameters: defaultParams,
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      mode,
+      workspaceId: 'ws_default'
     };
 
     const updatedChats = [newChat, ...chats];
@@ -442,6 +466,18 @@ export default function App() {
     }
 
     try {
+      const isAgentChat = activeChat.mode === 'agent';
+      const configWithAgentPrompt = { ...activeChat.parameters };
+      if (isAgentChat) {
+        const agentInstructions = `Вы — ИИ Агент-разработчик (Coding Agent) локального проекта "${activeChat.title}".
+Вы помогаете пользователю разрабатывать, отлаживать, анализировать и модифицировать код проекта.
+Пользователь видит каталог файлов вашего проекта в правой панели.
+Когда вас просят внести изменения или проанализировать код, давайте структурированные, высокоточные и профессиональные ответы на русском языке с подробными фрагментами кода и инструкциями.`;
+        configWithAgentPrompt.systemPrompt = configWithAgentPrompt.systemPrompt
+          ? `${configWithAgentPrompt.systemPrompt}\n\n${agentInstructions}`
+          : agentInstructions;
+      }
+
       // Send chat context to full-stack backend Express endpoint
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -453,7 +489,7 @@ export default function App() {
             .filter((m) => !m.isSystem)
             .map((m) => ({ role: m.role, content: m.content })),
           modelId: activeChat.modelId,
-          config: activeChat.parameters,
+          config: configWithAgentPrompt,
           apiKey: kieApiKey,
         }),
       });
@@ -529,22 +565,74 @@ export default function App() {
     }
   };
 
-  return (
-    <div className="relative h-[100dvh] flex flex-col justify-between max-w-lg mx-auto bg-white border-x border-slate-100 shadow-xl overflow-hidden text-slate-800">
-      
-      {/* 1. FLOATING DRAWER TRIGGER (No full top header panel!) */}
-      <div className="absolute top-4 left-4 z-30">
-        <button
-          onClick={() => setSidebarOpen(true)}
-          className="flex items-center justify-center bg-white/90 hover:bg-white text-slate-700 hover:text-slate-900 shadow-md border border-slate-100 rounded-full h-11 w-11 transition-all focus:outline-hidden cursor-pointer touch-manipulation active:scale-95"
-          title="Открыть список диалогов"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
-      </div>
+  const isAgentTheme = activeMode === 'agent' || activeChat?.mode === 'agent';
 
-      {/* Floating Action Buttons */}
-      {activeChat && activeChat.messages.length > 0 && (
+  return (
+    <div className={`relative h-[100dvh] flex flex-col justify-between mx-auto border-x shadow-xl overflow-hidden transition-all duration-200 ${
+      isAgentTheme 
+        ? 'max-w-5xl bg-slate-900 border-slate-800 text-slate-200' 
+        : 'max-w-lg bg-white border-slate-100 text-slate-800'
+    }`}>
+      
+      {/* 1. TOP HEADER / TRIGGER BAR */}
+      {isAgentTheme ? (
+        <div className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex items-center justify-between z-30 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-all cursor-pointer"
+              title="Список диалогов / Проектов"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <Code2 className="h-4 w-4 text-sky-400 shrink-0" />
+                <span className="text-xs font-bold text-white font-display truncate max-w-[180px] sm:max-w-xs">
+                  {activeChat?.title || 'Агентский проект'}
+                </span>
+                <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-mono border border-sky-500/30 font-semibold">
+                  ⚡ Агентская среда
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {activeChat && activeChat.messages.length > 0 && (
+              <button
+                onClick={clearCurrentChatMessages}
+                disabled={isGenerating}
+                className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-xl transition-all cursor-pointer"
+                title="Очистить проект"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+              className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 text-white px-3 py-1.5 rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer"
+              title="Открыть каталог файлов проекта"
+            >
+              <FolderTree className="h-4 w-4" />
+              <span className="hidden sm:inline">Каталог проекта</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="absolute top-4 left-4 z-30">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="flex items-center justify-center bg-white/90 hover:bg-white text-slate-700 hover:text-slate-900 shadow-md border border-slate-100 rounded-full h-11 w-11 transition-all focus:outline-hidden cursor-pointer touch-manipulation active:scale-95"
+            title="Открыть список диалогов"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        </div>
+      )}
+
+      {/* Floating Action Buttons for Chat mode */}
+      {!isAgentTheme && activeChat && activeChat.messages.length > 0 && (
         <div className="absolute top-4 right-4 z-30 flex items-center gap-1.5 animate-fade-in">
           <button
             onClick={copyChatHistory}
@@ -571,7 +659,9 @@ export default function App() {
       <main
         ref={chatContainerRef}
         onScroll={handleContainerScroll}
-        className="flex-1 overflow-y-auto px-4 pt-20 pb-4 space-y-5 bg-slate-50/40"
+        className={`flex-1 overflow-y-auto px-4 pt-16 pb-4 space-y-5 transition-colors duration-200 ${
+          isAgentTheme ? 'bg-white text-slate-900' : 'bg-slate-50/40 text-slate-800'
+        }`}
       >
         {isOffline && (
           <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3.5 py-2.5 rounded-xl shadow-xs">
@@ -586,28 +676,36 @@ export default function App() {
             {/* Minimal Greeting */}
             <div className="space-y-2 text-center max-w-[85%] mx-auto mt-6">
               <div className="inline-flex items-center justify-center w-12 h-12 bg-sky-50 rounded-2xl mb-1 text-sky-600">
-                <Sparkles className="h-6 w-6 stroke-[1.5] animate-pulse" />
+                {isAgentTheme ? <Code2 className="h-6 w-6 stroke-[1.5]" /> : <Sparkles className="h-6 w-6 stroke-[1.5] animate-pulse" />}
               </div>
-              <h3 className="text-lg font-bold font-display text-slate-950">Минималистичный нейрочат</h3>
+              <h3 className="text-lg font-bold font-display text-slate-950">
+                {isAgentTheme ? 'Агентская среда разработки' : 'Минималистичный нейрочат'}
+              </h3>
               <p className="text-slate-500 text-xs leading-normal">
-                Напишите ваше сообщение, чтобы начать диалог. Настройки модели доступны прямо на нижней панели ввода.
+                {isAgentTheme 
+                  ? 'Каждый чат равен отдельному проекту. Используйте панель «Каталог проекта» справа для просмотра и работы с файлами.' 
+                  : 'Напишите ваше сообщение, чтобы начать диалог. Настройки модели доступны прямо на нижней панели ввода.'}
               </p>
             </div>
 
             {/* Quick Prompt Chips */}
-            <div className="space-y-2 px-1">
+            <div className="space-y-2 px-1 max-w-lg mx-auto w-full">
               <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1.5 font-display">
-                Примеры запросов
+                {isAgentTheme ? 'Примеры задач агенту' : 'Примеры запросов'}
               </span>
               <div className="grid grid-cols-1 gap-2">
-                {PROMPT_CHIPS.map((chip, idx) => (
+                {(isAgentTheme ? [
+                  { label: '📂 Проанализировать структуру проекта', prompt: 'Покажи структуру каталога проекта и кратко опиши назначение ключевых модулей.' },
+                  { label: '🔍 Найти возможные ошибки в коде', prompt: 'Проверь код в проекте на потенциальные баги, утечки памяти или некорректную обработку ошибок.' },
+                  { label: '⚡ Предложить оптимизацию', prompt: 'Изучи модули приложения и предложи улучшения производительности и структуры.' }
+                ] : PROMPT_CHIPS).map((chip, idx) => (
                   <button
                     key={idx}
                     onClick={() => {
                       setInputMessage(chip.prompt);
                       textareaRef.current?.focus();
                     }}
-                    className="w-full text-left bg-white hover:bg-slate-50 text-[13px] text-slate-700 font-medium p-3.5 rounded-xl border border-slate-200/60 shadow-xs hover:border-slate-300 transition-all cursor-pointer min-h-[44px] touch-manipulation active:bg-slate-100"
+                    className="w-full text-left bg-slate-50 hover:bg-slate-100 text-[13px] text-slate-700 font-medium p-3.5 rounded-xl border border-slate-200/60 shadow-xs transition-all cursor-pointer min-h-[44px] touch-manipulation active:bg-slate-200"
                   >
                     {chip.label}
                   </button>
@@ -815,6 +913,8 @@ export default function App() {
       <Sidebar
         chats={chats}
         activeChatId={activeChatId}
+        activeMode={activeMode}
+        onSelectMode={handleSelectMode}
         onSelectChat={selectChat}
         onCreateChat={createNewChat}
         onDeleteChat={deleteChat}
@@ -827,6 +927,14 @@ export default function App() {
         isCheckingBalance={isCheckingBalance}
         balanceError={balanceError}
         onCheckBalance={() => checkKieBalance()}
+      />
+
+      {/* 5. RIGHT SIDEBAR - PROJECT FILES & AGENT WORKSPACE */}
+      <RightSidebar
+        isOpen={rightSidebarOpen}
+        onClose={() => setRightSidebarOpen(false)}
+        workspaceId={activeChat?.workspaceId || 'ws_default'}
+        chatTitle={activeChat?.title || 'Агентский проект'}
       />
 
       {/* 5. CONFIRM DELETE MODAL */}
