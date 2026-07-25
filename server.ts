@@ -134,12 +134,51 @@ async function startServer() {
   // API Route for chat generations
   app.post("/api/chat", async (req, res) => {
     try {
-      const { messages, modelId, config, apiKey: bodyApiKey } = req.body;
+      const { messages, modelId, config, apiKey: bodyApiKey, workspaceId, mode } = req.body;
 
       if (!messages || !Array.isArray(messages)) {
         res.status(400).json({ error: "Массив сообщений 'messages' обязателен." });
         return;
       }
+
+      // Format workspace context (file tree & structure)
+      const targetWsId = workspaceId || "ws_default";
+      const wsStore = workspacesMap[targetWsId] || defaultWorkspace;
+      const wsFileTree = buildFileTree(wsStore.rootPath, wsStore.rootPath, 0, 4);
+
+      function renderTree(nodes: any[], indent = ''): string {
+        let text = '';
+        for (const node of nodes) {
+          if (node.type === 'directory') {
+            text += `${indent}📁 ${node.name}/\n`;
+            if (node.children && node.children.length > 0) {
+              text += renderTree(node.children, indent + '  ');
+            }
+          } else {
+            const sizeKb = node.size ? ` (${Math.round(node.size / 1024)} KB)` : '';
+            text += `${indent}📄 ${node.name}${sizeKb}\n`;
+          }
+        }
+        return text;
+      }
+
+      const fileTreeText = renderTree(wsFileTree);
+      const workspaceContextString = `\n\n=== РАБОЧЕЕ ПРОСТРАНСТВО ПРОЕКТА (${wsStore.name}) ===\nКаталог: ${wsStore.rootPath}\n\nСтруктура файлов проекта:\n${fileTreeText || '(файлы не найдены)'}\n================================================`;
+
+      // Build effective system prompt with workspace context and agent instructions
+      let baseSystemPrompt = (config?.systemPrompt || '').trim();
+      if (!baseSystemPrompt.includes('=== РАБОЧЕЕ ПРОСТРАНСТВО ПРОЕКТА')) {
+        baseSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n${workspaceContextString}` : workspaceContextString;
+      }
+
+      if (mode === 'agent' && !baseSystemPrompt.includes('[TASK:')) {
+        baseSystemPrompt += `\n\nИнструкция для Агента:\nПри ответе и выполнении задач используйте следующую разметку в начале ответа или соответствующего шага:\n[TASK: Краткое название задачи]\n[STEP: Название текущего шага]`;
+      }
+
+      const effectiveConfig = {
+        ...config,
+        systemPrompt: baseSystemPrompt,
+      };
 
       // Resolve API key to use
       const apiKey = bodyApiKey || req.headers.authorization?.replace("Bearer ", "") || process.env.KIE_API_KEY;
@@ -173,10 +212,10 @@ async function startServer() {
       if (isGpt56Reasoning) {
         // GPT-5.6 & Codex reasoning models expect "input" instead of "messages", and nested content array
         const inputList: any[] = [];
-        if (config?.systemPrompt && config.systemPrompt.trim()) {
+        if (effectiveConfig?.systemPrompt) {
           inputList.push({
             role: "system",
-            content: [{ type: "input_text", text: config.systemPrompt.trim() }]
+            content: [{ type: "input_text", text: effectiveConfig.systemPrompt }]
           });
         }
 
@@ -194,20 +233,20 @@ async function startServer() {
         payload.input = inputList;
 
         // Reasoning configuration (effort level: low, medium, high, xhigh)
-        const effort = config?.reasoningEffort || 'low';
+        const effort = effectiveConfig?.reasoningEffort || 'low';
         payload.reasoning = { effort };
 
         // Tools/Web Search configuration
-        if (config?.webSearch) {
+        if (effectiveConfig?.webSearch) {
           payload.tools = [{ type: 'web_search' }];
         }
       } else if (isGpt52) {
         // GPT-5.2 expects "messages" with a nested array content
         const messagesList: any[] = [];
-        if (config?.systemPrompt && config.systemPrompt.trim()) {
+        if (effectiveConfig?.systemPrompt) {
           messagesList.push({
             role: "system",
-            content: [{ type: "text", text: config.systemPrompt.trim() }]
+            content: [{ type: "text", text: effectiveConfig.systemPrompt }]
           });
         }
 
@@ -219,14 +258,14 @@ async function startServer() {
         });
 
         payload.messages = messagesList;
-        payload.temperature = typeof config?.temperature === 'number' ? config.temperature : 0.7;
+        payload.temperature = typeof effectiveConfig?.temperature === 'number' ? effectiveConfig.temperature : 0.7;
 
-        if (typeof config?.maxTokens === 'number') {
-          payload.max_tokens = config.maxTokens;
+        if (typeof effectiveConfig?.maxTokens === 'number') {
+          payload.max_tokens = effectiveConfig.maxTokens;
         }
 
         // Tools / Web search for GPT-5.2
-        if (config?.webSearch) {
+        if (effectiveConfig?.webSearch) {
           payload.tools = [{
             type: "function",
             function: {
@@ -237,10 +276,10 @@ async function startServer() {
       } else {
         // Standard OpenAI format (for Claude, Gemini, Grok, Codex, etc.)
         const messagesList: any[] = [];
-        if (config?.systemPrompt && config.systemPrompt.trim()) {
+        if (effectiveConfig?.systemPrompt) {
           messagesList.push({
             role: "system",
-            content: config.systemPrompt.trim()
+            content: effectiveConfig.systemPrompt
           });
         }
 
@@ -252,10 +291,10 @@ async function startServer() {
         });
 
         payload.messages = messagesList;
-        payload.temperature = typeof config?.temperature === 'number' ? config.temperature : 0.7;
+        payload.temperature = typeof effectiveConfig?.temperature === 'number' ? effectiveConfig.temperature : 0.7;
 
-        if (typeof config?.maxTokens === 'number') {
-          payload.max_tokens = config.maxTokens;
+        if (typeof effectiveConfig?.maxTokens === 'number') {
+          payload.max_tokens = effectiveConfig.maxTokens;
         }
       }
 

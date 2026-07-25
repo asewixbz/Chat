@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Menu, SendHorizontal, MessageSquare, AlertCircle, RefreshCw, Sparkles, ChevronDown, Copy, Check, Trash2, Clipboard, X, Search, TextCursor, FileText, FolderTree, Terminal, Code2, Bot } from 'lucide-react';
+import { Menu, SendHorizontal, MessageSquare, AlertCircle, RefreshCw, Sparkles, ChevronDown, Copy, Check, Trash2, Clipboard, X, Search, TextCursor, FileText, FolderTree, Terminal, Code2, Bot, Activity } from 'lucide-react';
 import { Chat, ChatMode, Message, ModelId, ModelParameters, KIE_MODELS } from './types';
 import Sidebar from './components/Sidebar';
 import RightSidebar from './components/RightSidebar';
@@ -353,6 +353,46 @@ export default function App() {
     setStreamingText('');
   };
 
+  // Helper to resolve executing task details dynamically
+  const getActiveTaskTitle = (chat: Chat | null, streaming: string) => {
+    if (!chat) return { taskName: 'Выполнение запроса', stepName: 'Инициализация' };
+
+    const taskMatch = streaming.match(/\[TASK:\s*([^\]]+)\]/i);
+    const stepMatch = streaming.match(/\[STEP:\s*([^\]]+)\]/i);
+    if (taskMatch) {
+      return {
+        taskName: taskMatch[1].trim(),
+        stepName: stepMatch ? stepMatch[1].trim() : undefined,
+      };
+    }
+
+    const lastUserMsg = [...chat.messages].reverse().find((m) => m.role === 'user');
+    if (lastUserMsg) {
+      const text = lastUserMsg.content.toLowerCase();
+      if (text.includes('структур') || text.includes('дерево') || text.includes('файлы') || text.includes('анализ проекта') || text.includes('прочита')) {
+        return { taskName: 'Анализ файловой структуры и файлов проекта', stepName: 'Сканирование workspace' };
+      }
+      if (text.includes('git') || text.includes('коммит') || text.includes('ветка') || text.includes('worktree')) {
+        return { taskName: 'Инспекция состояния Git-репозитория', stepName: 'Запрос статуса Git' };
+      }
+      if (text.includes('код') || text.includes('функция') || text.includes('ошибк') || text.includes('исправ')) {
+        return { taskName: 'Анализ исходного кода и построение решений', stepName: 'Обработка логики' };
+      }
+      if (text.includes('тест') || text.includes('сборк') || text.includes('build') || text.includes('запуск')) {
+        return { taskName: 'Выполнение процессов сборки и проверки', stepName: 'Проверка компиляции' };
+      }
+      if (lastUserMsg.content.length > 0) {
+        const shortTitle = lastUserMsg.content.length > 45 ? `${lastUserMsg.content.substring(0, 45)}...` : lastUserMsg.content;
+        return { taskName: `Выполнение задачи: "${shortTitle}"`, stepName: 'Обработка в процессе' };
+      }
+    }
+
+    return {
+      taskName: chat.mode === 'agent' ? 'Выполнение агентской задачи' : 'Обработка и генерация ответа',
+      stepName: 'Формирование ответа'
+    };
+  };
+
   // --- Copy individual message ---
   const handleCopyMessage = async (messageId: string, content: string) => {
     const success = await copyToClipboard(content);
@@ -486,6 +526,8 @@ export default function App() {
           modelId: activeChat.modelId,
           config: configWithAgentPrompt,
           apiKey: kieApiKey,
+          workspaceId: activeChat.workspaceId || 'ws_default',
+          mode: activeChat.mode || 'chat',
         }),
       });
 
@@ -813,23 +855,42 @@ export default function App() {
 
         {/* ACTIVE STREAMING RESPONSE CHUNK */}
         {activeChat && generatingChatId === activeChat.id && streamingText && (
-          <div className="flex w-full justify-start animate-fade-in">
+          <div className="flex w-full justify-start animate-fade-in flex-col gap-2">
+            {activeChat.mode === 'agent' && (
+              <div className="self-start bg-sky-50/80 border border-sky-100/80 px-3 py-1.5 rounded-xl flex items-center gap-2 text-sky-700 text-[11px] font-semibold">
+                <Activity className="h-3.5 w-3.5 animate-spin text-sky-500" />
+                <span>Выполняется: {getActiveTaskTitle(activeChat, streamingText).taskName}</span>
+              </div>
+            )}
             <div className="max-w-[88%] px-4 py-3 bg-white text-slate-800 border border-slate-100/80 rounded-2xl rounded-bl-none shadow-xs">
               <Markdown content={streamingText} />
             </div>
           </div>
         )}
 
-        {/* GENERATION INDICATOR / LOADER */}
+        {/* GENERATION INDICATOR / EXECUTING TASK LOADER */}
         {activeChat && generatingChatId === activeChat.id && isGenerating && !streamingText && (
           <div className="flex w-full justify-start animate-fade-in">
-            <div className="bg-white border border-slate-100 px-4 py-3.5 rounded-2xl rounded-bl-none shadow-xs flex items-center gap-1.5">
-              <span className="w-2 h-2 bg-sky-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-2 h-2 bg-sky-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-2 h-2 bg-sky-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              <span className="text-[11.5px] text-slate-400 font-mono font-medium ml-1.5 uppercase tracking-wide">
-                Генерация ответа
-              </span>
+            <div className="bg-white border border-sky-100/90 px-4 py-3.5 rounded-2xl rounded-bl-none shadow-sm flex items-center gap-3 max-w-[88%]">
+              <div className="p-2 bg-sky-50 text-sky-600 rounded-xl shrink-0">
+                <Activity className="h-4.5 w-4.5 animate-spin" />
+              </div>
+              <div className="text-left space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-100">
+                    {activeChat.mode === 'agent' ? 'Агентная задача' : 'Выполняется задача'}
+                  </span>
+                  <span className="w-1.5 h-1.5 bg-sky-500 rounded-full animate-ping" />
+                </div>
+                <p className="text-[12.5px] font-bold text-slate-900 font-display">
+                  {getActiveTaskTitle(activeChat, streamingText).taskName}
+                </p>
+                {getActiveTaskTitle(activeChat, streamingText).stepName && (
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    Текущий шаг: {getActiveTaskTitle(activeChat, streamingText).stepName}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         )}
