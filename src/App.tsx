@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar';
 import RightSidebar from './components/RightSidebar';
 import ModelSettings from './components/ModelSettings';
 import Markdown from './components/Markdown';
+import { copyToClipboard } from './utils/clipboard';
 
 // Simple unique ID generator
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -353,15 +354,12 @@ export default function App() {
   };
 
   // --- Copy individual message ---
-  const handleCopyMessage = (messageId: string, content: string) => {
-    navigator.clipboard.writeText(content)
-      .then(() => {
-        setCopiedMessageId(messageId);
-        setTimeout(() => setCopiedMessageId(null), 2000);
-      })
-      .catch((err) => {
-        console.error('Failed to copy message:', err);
-      });
+  const handleCopyMessage = async (messageId: string, content: string) => {
+    const success = await copyToClipboard(content);
+    if (success) {
+      setCopiedMessageId(messageId);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    }
   };
 
   // --- Confirm delete message ---
@@ -386,7 +384,7 @@ export default function App() {
   };
 
   // --- Copy full chat history ---
-  const copyChatHistory = () => {
+  const copyChatHistory = async () => {
     if (!activeChat || activeChat.messages.length === 0) return;
 
     const formattedHistory = activeChat.messages
@@ -397,14 +395,11 @@ export default function App() {
       })
       .join('\n\n');
 
-    navigator.clipboard.writeText(formattedHistory)
-      .then(() => {
-        setHistoryCopied(true);
-        setTimeout(() => setHistoryCopied(false), 2000);
-      })
-      .catch((err) => {
-        console.error('Failed to copy history:', err);
-      });
+    const success = await copyToClipboard(formattedHistory);
+    if (success) {
+      setHistoryCopied(true);
+      setTimeout(() => setHistoryCopied(false), 2000);
+    }
   };
 
   // --- Send Message and Call API ---
@@ -1063,10 +1058,12 @@ export default function App() {
 
                 {/* Copy whole message */}
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(selectedSelectionMsg.content);
-                    setSelectionAllCopied(true);
-                    setTimeout(() => setSelectionAllCopied(false), 2000);
+                  onClick={async () => {
+                    const success = await copyToClipboard(selectedSelectionMsg.content);
+                    if (success) {
+                      setSelectionAllCopied(true);
+                      setTimeout(() => setSelectionAllCopied(false), 2000);
+                    }
                   }}
                   className="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-xl text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs border border-sky-100"
                 >
@@ -1134,10 +1131,12 @@ export default function App() {
                               Блок #{item.originalIndex + 1}
                             </span>
                             <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(item.text);
-                                setSelectionCopiedIndex(item.originalIndex);
-                                setTimeout(() => setSelectionCopiedIndex(null), 2000);
+                              onClick={async () => {
+                                const success = await copyToClipboard(item.text);
+                                if (success) {
+                                  setSelectionCopiedIndex(item.originalIndex);
+                                  setTimeout(() => setSelectionCopiedIndex(null), 2000);
+                                }
                               }}
                               className="px-2 py-1 bg-slate-50 hover:bg-sky-50 text-slate-500 hover:text-sky-600 rounded-md text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 border border-slate-100"
                             >

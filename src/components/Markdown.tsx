@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface MarkdownProps {
   content: string;
@@ -39,12 +40,10 @@ function CodeBlock({ code, language }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
+    const success = await copyToClipboard(code);
+    if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy text', err);
     }
   };
 
