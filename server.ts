@@ -6,6 +6,7 @@ import crypto from "crypto";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
+import { serverModeRegistry } from "./server/modes/serverModeRegistry";
 
 // Load environment variables
 dotenv.config();
@@ -103,6 +104,9 @@ interface PendingApproval {
 }
 
 const pendingApprovals: Record<string, PendingApproval> = {};
+const terminalSessions: Record<string, any> = {
+  term_default: { id: "term_default", workspaceId: "ws_default", shell: "/bin/bash", cols: 120, rows: 30, status: "running" }
+};
 
 
 async function startServer() {
@@ -112,11 +116,11 @@ async function startServer() {
   app.use(express.json());
 
   const KIE_MODEL_ENDPOINTS: Record<string, string> = {
-    'gpt-5-6-sol': '/codex/v1/responses',
-    'gpt-5-6-terra': '/codex/v1/responses',
-    'gpt-5-6-luna': '/codex/v1/responses',
-    'gpt-5-5': '/codex/v1/responses',
-    'gpt-5-4': '/codex/v1/responses',
+    'gpt-5-6-sol': '/gpt-5-6-sol/v1/chat/completions',
+    'gpt-5-6-terra': '/gpt-5-6-terra/v1/chat/completions',
+    'gpt-5-6-luna': '/gpt-5-6-luna/v1/chat/completions',
+    'gpt-5-5': '/gpt-5-5/v1/chat/completions',
+    'gpt-5-4': '/gpt-5-4/v1/chat/completions',
     'gpt-5-2': '/gpt-5-2/v1/chat/completions',
     'cluade-sonnet-5': '/cluade-sonnet-5/v1/chat/completions',
     'cluade-fable-5': '/cluade-fable-5/v1/chat/completions',
@@ -141,43 +145,20 @@ async function startServer() {
         return;
       }
 
-      // Format workspace context (file tree & structure)
-      const targetWsId = workspaceId || "ws_default";
-      const wsStore = workspacesMap[targetWsId] || defaultWorkspace;
-      const wsFileTree = buildFileTree(wsStore.rootPath, wsStore.rootPath, 0, 4);
-
-      function renderTree(nodes: any[], indent = ''): string {
-        let text = '';
-        for (const node of nodes) {
-          if (node.type === 'directory') {
-            text += `${indent}📁 ${node.name}/\n`;
-            if (node.children && node.children.length > 0) {
-              text += renderTree(node.children, indent + '  ');
-            }
-          } else {
-            const sizeKb = node.size ? ` (${Math.round(node.size / 1024)} KB)` : '';
-            text += `${indent}📄 ${node.name}${sizeKb}\n`;
-          }
-        }
-        return text;
-      }
-
-      const fileTreeText = renderTree(wsFileTree);
-      const workspaceContextString = `\n\n=== РАБОЧЕЕ ПРОСТРАНСТВО ПРОЕКТА (${wsStore.name}) ===\nКаталог: ${wsStore.rootPath}\n\nСтруктура файлов проекта:\n${fileTreeText || '(файлы не найдены)'}\n================================================`;
-
-      // Build effective system prompt with workspace context and agent instructions
-      let baseSystemPrompt = (config?.systemPrompt || '').trim();
-      if (!baseSystemPrompt.includes('=== РАБОЧЕЕ ПРОСТРАНСТВО ПРОЕКТА')) {
-        baseSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n${workspaceContextString}` : workspaceContextString;
-      }
-
-      if (mode === 'agent' && !baseSystemPrompt.includes('[TASK:')) {
-        baseSystemPrompt += `\n\nИнструкция для Агента:\nПри ответе и выполнении задач используйте следующую разметку в начале ответа или соответствующего шага:\n[TASK: Краткое название задачи]\n[STEP: Название текущего шага]`;
-      }
+      // Build effective system prompt using mode strategy pipeline
+      const modeStrategy = serverModeRegistry.get(mode);
+      const effectiveSystemPrompt = modeStrategy.prepareSystemPrompt({
+        messages,
+        config,
+        workspaceId,
+        workspacesMap,
+        defaultWorkspace,
+        buildFileTree,
+      });
 
       const effectiveConfig = {
         ...config,
-        systemPrompt: baseSystemPrompt,
+        systemPrompt: effectiveSystemPrompt,
       };
 
       // Resolve API key to use
@@ -880,6 +861,103 @@ async function startServer() {
     } else {
       res.status(404).json({ error: "Подтверждение не найдено" });
     }
+  });
+
+  // 8. Git Worktrees API
+  const activeWorktrees: Record<string, { runId: string; workspaceId: string; path: string; branch: string; createdAt: string }> = {};
+
+  app.get("/api/v1/workspaces/:id/worktrees", (req, res) => {
+    const wsId = req.params.id;
+    const list = Object.values(activeWorktrees).filter(w => w.workspaceId === wsId);
+    res.json({ worktrees: list });
+  });
+
+  app.post("/api/v1/workspaces/:id/worktrees", (req, res) => {
+    const ws = workspacesMap[req.params.id] || defaultWorkspace;
+    const runId = "run_" + Math.random().toString(36).substring(2, 9);
+    const sessionId = req.body?.sessionId || "sess_main";
+    const worktreePath = path.join(process.env.HOME || "/tmp", ".local/share/neurocode/worktrees", ws.id, runId);
+    const branchName = `neurocode/${sessionId}/${runId}`;
+
+    fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+
+    exec(`git worktree add -b "${branchName}" "${worktreePath}"`, { cwd: ws.rootPath }, (err, stdout, stderr) => {
+      if (err) {
+        // Fallback info if git worktree fails (e.g. non-git directory)
+        activeWorktrees[runId] = {
+          runId,
+          workspaceId: ws.id,
+          path: worktreePath,
+          branch: branchName,
+          createdAt: new Date().toISOString()
+        };
+        res.json({ success: true, worktree: activeWorktrees[runId], warning: "Worktree created in isolated path (non-git repo fallback)" });
+        return;
+      }
+      activeWorktrees[runId] = {
+        runId,
+        workspaceId: ws.id,
+        path: worktreePath,
+        branch: branchName,
+        createdAt: new Date().toISOString()
+      };
+      res.json({ success: true, worktree: activeWorktrees[runId] });
+    });
+  });
+
+  app.delete("/api/v1/workspaces/:id/worktrees/:runId", (req, res) => {
+    const ws = workspacesMap[req.params.id] || defaultWorkspace;
+    const runId = req.params.runId;
+    const wt = activeWorktrees[runId];
+
+    if (wt) {
+      exec(`git worktree remove --force "${wt.path}"`, { cwd: ws.rootPath }, () => {
+        delete activeWorktrees[runId];
+        res.json({ success: true, message: "Worktree успешно удален" });
+      });
+    } else {
+      res.status(404).json({ error: "Worktree не найден" });
+    }
+  });
+
+  // 9. Neurocode Go Engine Architecture & Inspector API
+  app.get("/api/v1/neurocode/info", (req, res) => {
+    res.json({
+      service: "neurocode-orchestrator",
+      platform: "linux-x86_64",
+      backendLanguage: "Go 1.23",
+      binaryPath: "/usr/local/bin/neurocode",
+      database: path.join(process.env.HOME || "/tmp", ".local/share/neurocode/data.db"),
+      databaseDriver: "modernc.org/sqlite (pure-Go)",
+      workers: {
+        agentWorkers: 4,
+        commandWorkers: 8,
+        maxReadRunsPerWorkspace: 4,
+        maxWriteRunsPerWorkspace: 2,
+        activeRunningAgents: 1,
+      },
+      terminals: {
+        maxGlobal: 12,
+        maxPerWorkspace: 4,
+        activePTYs: Object.keys(terminalSessions).length,
+      },
+      security: {
+        defaultApprovalPolicy: "safe-auto",
+        allowRoot: false,
+        rootGuardActive: true,
+        dataPolicy: "confirm-external",
+      },
+      llmProvider: {
+        name: "KIE Gateway",
+        capabilities: {
+          streaming: true,
+          nativeToolCalling: true,
+          jsonFallbackMode: true,
+          maxContextTokens: 128000,
+          maxOutputTokens: 8192
+        }
+      }
+    });
   });
 
   // Mount Vite development server middleware in non-production

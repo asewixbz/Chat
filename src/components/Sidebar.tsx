@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Chat, ChatMode, KIE_MODELS } from '../types';
 import { Plus, MessageSquare, Trash2, X, AlertCircle, Key, Coins, RefreshCw, Eye, EyeOff, Check, Settings, Bot, Terminal, Code2 } from 'lucide-react';
+import { modeRegistry } from '../modes/registry';
 
 interface SidebarProps {
   chats: Chat[];
@@ -44,10 +45,12 @@ export default function Sidebar({
   const [showSecret, setShowSecret] = useState(false);
   const [tempKey, setTempKey] = useState(kieApiKey || '');
 
+  const allModes = modeRegistry.getAll();
+
   // Filter chats by mode
   const filteredChats = chats.filter(c => {
-    if (activeMode === 'agent') return c.mode === 'agent';
-    return !c.mode || c.mode === 'chat';
+    const chatMode = c.mode || 'chat';
+    return chatMode === activeMode;
   });
 
   useEffect(() => {
@@ -114,31 +117,29 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* --- TOP MODE SWITCHER BUTTON --- */}
+        {/* --- DYNAMIC MODE SWITCHER --- */}
         <div className={`p-3 border-b ${isAgentTheme ? 'border-slate-800 bg-slate-950/40' : 'border-slate-100 bg-slate-50/70'}`}>
           <div className={`p-1 rounded-xl flex gap-1 ${isAgentTheme ? 'bg-slate-950 border border-slate-800' : 'bg-slate-200/70'}`}>
-            <button
-              onClick={() => onSelectMode('chat')}
-              className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeMode === 'chat'
-                  ? 'bg-white text-slate-900 shadow-sm font-semibold'
-                  : isAgentTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <MessageSquare className="h-3.5 w-3.5 text-sky-500" />
-              <span>Обычный чат</span>
-            </button>
-            <button
-              onClick={() => onSelectMode('agent')}
-              className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeMode === 'agent'
-                  ? 'bg-sky-600 text-white shadow-sm font-semibold'
-                  : isAgentTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Terminal className="h-3.5 w-3.5 text-sky-300" />
-              <span>Агентская среда</span>
-            </button>
+            {allModes.map((mode) => {
+              const isActive = activeMode === mode.id;
+              const IconComp = mode.iconName === 'Terminal' ? Terminal : MessageSquare;
+              return (
+                <button
+                  key={mode.id}
+                  onClick={() => onSelectMode(mode.id as ChatMode)}
+                  className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    isActive
+                      ? mode.id === 'agent' 
+                        ? 'bg-sky-600 text-white shadow-sm font-semibold' 
+                        : 'bg-white text-slate-900 shadow-sm font-semibold'
+                      : isAgentTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <IconComp className={`h-3.5 w-3.5 ${isActive && mode.id === 'agent' ? 'text-sky-200' : 'text-sky-500'}`} />
+                  <span>{mode.name}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 

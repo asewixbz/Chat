@@ -138,7 +138,7 @@ export interface ModelParameters {
   webSearch?: boolean;
 }
 
-export type ChatMode = 'chat' | 'agent';
+export type ChatMode = 'chat' | 'agent' | string;
 
 export interface MessageToolCall {
   id: string;

@@ -5,7 +5,9 @@ import Sidebar from './components/Sidebar';
 import RightSidebar from './components/RightSidebar';
 import ModelSettings from './components/ModelSettings';
 import Markdown from './components/Markdown';
+import AgentDashboard from './components/AgentDashboard';
 import { copyToClipboard } from './utils/clipboard';
+import { modeRegistry } from './modes/registry';
 
 // Simple unique ID generator
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -202,14 +204,21 @@ export default function App() {
     );
   };
 
+  // --- Active Chat Helper ---
+  const activeChat = chats.find((c) => c.id === activeChatId) || null;
+
+  // Sync activeMode with activeChat mode when activeChatId changes
+  useEffect(() => {
+    if (activeChat?.mode) {
+      setActiveMode(activeChat.mode);
+    }
+  }, [activeChatId, activeChat?.mode]);
+
   // Force scroll when active chat switches
   useEffect(() => {
     userAtBottomRef.current = true;
     setTimeout(() => scrollToBottom('auto'), 50);
   }, [activeChatId]);
-
-  // --- Active Chat Helper ---
-  const activeChat = chats.find((c) => c.id === activeChatId) || null;
 
   // --- Helper to get default parameters for a model ---
   const getDefaultParamsForModel = (modelId: ModelId): ModelParameters => {
@@ -501,17 +510,13 @@ export default function App() {
     }
 
     try {
-      const isAgentChat = activeChat.mode === 'agent';
-      const configWithAgentPrompt = { ...activeChat.parameters };
-      if (isAgentChat) {
-        const agentInstructions = `Вы — ИИ Агент-разработчик (Coding Agent) локального проекта "${activeChat.title}".
-Вы помогаете пользователю разрабатывать, отлаживать, анализировать и модифицировать код проекта.
-Пользователь видит каталог файлов вашего проекта в правой панели.
-Когда вас просят внести изменения или проанализировать код, давайте структурированные, высокоточные и профессиональные ответы на русском языке с подробными фрагментами кода и инструкциями.`;
-        configWithAgentPrompt.systemPrompt = configWithAgentPrompt.systemPrompt
-          ? `${configWithAgentPrompt.systemPrompt}\n\n${agentInstructions}`
-          : agentInstructions;
-      }
+      const activeStrategy = modeRegistry.get(activeMode);
+      const decorated = activeStrategy.decorateRequestPayload({
+        messages: updatedMessages,
+        config: activeChat.parameters,
+        workspaceId: activeChat.workspaceId,
+        chatTitle: activeChat.title,
+      });
 
       // Send chat context to full-stack backend Express endpoint
       const response = await fetch('/api/chat', {
@@ -524,10 +529,10 @@ export default function App() {
             .filter((m) => !m.isSystem)
             .map((m) => ({ role: m.role, content: m.content })),
           modelId: activeChat.modelId,
-          config: configWithAgentPrompt,
+          config: decorated.config,
           apiKey: kieApiKey,
-          workspaceId: activeChat.workspaceId || 'ws_default',
-          mode: activeChat.mode || 'chat',
+          workspaceId: decorated.workspaceId,
+          mode: activeMode,
         }),
       });
 
@@ -602,7 +607,7 @@ export default function App() {
     }
   };
 
-  const isAgentTheme = activeMode === 'agent' || activeChat?.mode === 'agent';
+  const isAgentTheme = activeMode === 'agent';
 
   return (
     <div className={`relative h-[100dvh] flex flex-col justify-between mx-auto border-x shadow-xl overflow-hidden transition-all duration-200 ${
@@ -750,6 +755,14 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* AGENT ORCHESTRATOR DASHBOARD (Only visible in Agent Mode) */}
+        {activeChat && isAgentTheme && (
+          <AgentDashboard
+            workspaceId={activeChat.workspaceId || 'ws_default'}
+            activeTask={getActiveTaskTitle(activeChat, streamingText)}
+          />
         )}
 
         {/* DIALOG MESSAGES */}
