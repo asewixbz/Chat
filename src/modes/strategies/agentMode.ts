@@ -14,12 +14,16 @@ export const agentModeStrategy: ModeStrategy = {
     headerAccent: 'from-purple-500/10',
     inputBorder: 'focus-within:border-purple-500/50',
     buttonColor: 'bg-sky-600 hover:bg-sky-500 text-white',
+    userBubbleBg: 'bg-purple-50 text-slate-900 border-purple-100/60',
+    assistantBubbleBg: 'bg-white text-slate-800 border-slate-100/80',
   },
   capabilities: {
     requiresWorkspace: true,
     supportsTools: true,
     showAgentDashboard: true,
     showSidebarWorkspaces: true,
+    hasTaskExecutionStatus: true,
+    loadingText: 'Выполняется агентская задача...',
   },
   buildSystemPrompt: ({ userPrompt, chatTitle, workspaceInfo, fileTreeText }) => {
     let base = (userPrompt || '').trim();

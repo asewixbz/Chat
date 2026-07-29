@@ -14,12 +14,16 @@ export const chatModeStrategy: ModeStrategy = {
     headerAccent: 'from-sky-500/10',
     inputBorder: 'focus-within:border-sky-500/50',
     buttonColor: 'bg-sky-600 hover:bg-sky-500 text-white',
+    userBubbleBg: 'bg-sky-50 text-slate-900 border-sky-100/60',
+    assistantBubbleBg: 'bg-white text-slate-800 border-slate-100/80',
   },
   capabilities: {
     requiresWorkspace: false,
     supportsTools: false,
     showAgentDashboard: false,
     showSidebarWorkspaces: false,
+    hasTaskExecutionStatus: false,
+    loadingText: 'Идет генерация ответа...',
   },
   buildSystemPrompt: ({ userPrompt }) => {
     // Pure, untainted user prompt

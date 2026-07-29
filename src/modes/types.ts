@@ -8,6 +8,8 @@ export interface ModeTheme {
   headerAccent: string;
   inputBorder: string;
   buttonColor: string;
+  userBubbleBg: string;
+  assistantBubbleBg: string;
 }
 
 export interface ModeCapabilities {
@@ -15,6 +17,8 @@ export interface ModeCapabilities {
   supportsTools: boolean;
   showAgentDashboard: boolean;
   showSidebarWorkspaces: boolean;
+  hasTaskExecutionStatus: boolean;
+  loadingText: string;
 }
 
 export interface SystemPromptContext {

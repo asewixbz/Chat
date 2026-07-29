@@ -607,7 +607,8 @@ export default function App() {
     }
   };
 
-  const isAgentTheme = activeMode === 'agent';
+  const currentStrategy = modeRegistry.get(activeMode);
+  const isAgentTheme = currentStrategy.capabilities.showAgentDashboard;
 
   return (
     <div className={`relative h-[100dvh] flex flex-col justify-between mx-auto border-x shadow-xl overflow-hidden transition-all duration-200 ${
@@ -869,13 +870,13 @@ export default function App() {
         {/* ACTIVE STREAMING RESPONSE CHUNK */}
         {activeChat && generatingChatId === activeChat.id && streamingText && (
           <div className="flex w-full justify-start animate-fade-in flex-col gap-2">
-            {activeChat.mode === 'agent' && (
-              <div className="self-start bg-sky-50/80 border border-sky-100/80 px-3 py-1.5 rounded-xl flex items-center gap-2 text-sky-700 text-[11px] font-semibold">
-                <Activity className="h-3.5 w-3.5 animate-spin text-sky-500" />
+            {currentStrategy.capabilities.hasTaskExecutionStatus && (
+              <div className="self-start bg-purple-50/80 border border-purple-100/80 px-3 py-1.5 rounded-xl flex items-center gap-2 text-purple-700 text-[11px] font-semibold">
+                <Activity className="h-3.5 w-3.5 animate-spin text-purple-500" />
                 <span>Выполняется: {getActiveTaskTitle(activeChat, streamingText).taskName}</span>
               </div>
             )}
-            <div className="max-w-[88%] px-4 py-3 bg-white text-slate-800 border border-slate-100/80 rounded-2xl rounded-bl-none shadow-xs">
+            <div className={`max-w-[88%] px-4 py-3 bg-white text-slate-800 border ${currentStrategy.theme.activeBorder || 'border-slate-100/80'} rounded-2xl rounded-bl-none shadow-xs`}>
               <Markdown content={streamingText} />
             </div>
           </div>
@@ -884,27 +885,45 @@ export default function App() {
         {/* GENERATION INDICATOR / EXECUTING TASK LOADER */}
         {activeChat && generatingChatId === activeChat.id && isGenerating && !streamingText && (
           <div className="flex w-full justify-start animate-fade-in">
-            <div className="bg-white border border-sky-100/90 px-4 py-3.5 rounded-2xl rounded-bl-none shadow-sm flex items-center gap-3 max-w-[88%]">
-              <div className="p-2 bg-sky-50 text-sky-600 rounded-xl shrink-0">
-                <Activity className="h-4.5 w-4.5 animate-spin" />
-              </div>
-              <div className="text-left space-y-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-100">
-                    {activeChat.mode === 'agent' ? 'Агентная задача' : 'Выполняется задача'}
-                  </span>
-                  <span className="w-1.5 h-1.5 bg-sky-500 rounded-full animate-ping" />
+            {currentStrategy.capabilities.hasTaskExecutionStatus ? (
+              /* AGENT MODE: TASK & STEP LOADER */
+              <div className="bg-white border border-purple-100/90 px-4 py-3.5 rounded-2xl rounded-bl-none shadow-sm flex items-center gap-3 max-w-[88%]">
+                <div className="p-2 bg-purple-50 text-purple-600 rounded-xl shrink-0">
+                  <Activity className="h-4.5 w-4.5 animate-spin" />
                 </div>
-                <p className="text-[12.5px] font-bold text-slate-900 font-display">
-                  {getActiveTaskTitle(activeChat, streamingText).taskName}
-                </p>
-                {getActiveTaskTitle(activeChat, streamingText).stepName && (
-                  <p className="text-[11px] text-slate-400 font-medium">
-                    Текущий шаг: {getActiveTaskTitle(activeChat, streamingText).stepName}
+                <div className="text-left space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-100">
+                      Агентная задача
+                    </span>
+                    <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-ping" />
+                  </div>
+                  <p className="text-[12.5px] font-bold text-slate-900 font-display">
+                    {getActiveTaskTitle(activeChat, streamingText).taskName}
                   </p>
-                )}
+                  {getActiveTaskTitle(activeChat, streamingText).stepName && (
+                    <p className="text-[11px] text-slate-400 font-medium">
+                      Текущий шаг: {getActiveTaskTitle(activeChat, streamingText).stepName}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              /* REGULAR CHAT MODE: CLEAN RESPONSE GENERATION INDICATOR */
+              <div className="bg-white border border-sky-100/90 px-4 py-3 rounded-2xl rounded-bl-none shadow-xs flex items-center gap-3 max-w-[88%]">
+                <div className="p-2 bg-sky-50 text-sky-600 rounded-xl shrink-0">
+                  <Sparkles className="h-4 w-4 animate-pulse text-sky-500" />
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                  <span>{currentStrategy.capabilities.loadingText || 'Идет генерация ответа'}</span>
+                  <span className="flex gap-1">
+                    <span className="w-1.5 h-1.5 bg-sky-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                    <span className="w-1.5 h-1.5 bg-sky-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                    <span className="w-1.5 h-1.5 bg-sky-500 rounded-full animate-bounce"></span>
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
