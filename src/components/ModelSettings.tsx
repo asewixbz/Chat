@@ -1,5 +1,6 @@
 import { ModelId, ModelParameters, KIE_MODELS } from '../types';
-import { Sliders, HelpCircle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { Sliders, HelpCircle, ChevronDown, ChevronUp, RefreshCw, Activity } from 'lucide-react';
+import ApiStatusIndicator, { ApiStatusType } from './ApiStatusIndicator';
 
 interface ModelSettingsProps {
   selectedModelId: ModelId;
@@ -9,6 +10,9 @@ interface ModelSettingsProps {
   isOpen: boolean;
   onToggleOpen: () => void;
   onResetParams: () => void;
+  apiStatus?: ApiStatusType;
+  apiLatency?: number | null;
+  onOpenDiagnostics?: () => void;
 }
 
 export default function ModelSettings({
@@ -18,7 +22,10 @@ export default function ModelSettings({
   onParamChange,
   isOpen,
   onToggleOpen,
-  onResetParams
+  onResetParams,
+  apiStatus = 'unknown',
+  apiLatency = null,
+  onOpenDiagnostics
 }: ModelSettingsProps) {
   const currentModel = KIE_MODELS[selectedModelId] || {
     id: selectedModelId,
@@ -36,32 +43,53 @@ export default function ModelSettings({
   return (
     <div className="border-t border-slate-100 bg-slate-50/80 backdrop-blur-sm transition-all duration-300">
       {/* Settings bar / trigger */}
-      <div className="flex items-center justify-between px-4 py-2 bg-slate-100/50">
-        <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-between px-4 py-2 bg-slate-100/50 gap-2 flex-wrap sm:flex-nowrap">
+        <div className="flex items-center gap-2">
           <button
             onClick={onToggleOpen}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 transition-colors py-1 px-2 rounded-md hover:bg-slate-200/50"
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 transition-colors py-1 px-2 rounded-md hover:bg-slate-200/50 cursor-pointer"
           >
             <Sliders className="h-3.5 w-3.5 text-sky-600" />
             <span className="font-display">Параметры: {currentModel.name}</span>
             {isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
           </button>
+
+          {onOpenDiagnostics && (
+            <ApiStatusIndicator
+              status={apiStatus}
+              latencyMs={apiLatency}
+              onOpenDiagnostics={onOpenDiagnostics}
+            />
+          )}
         </div>
 
-        {/* Model Dropdown Selection */}
-        <div className="relative">
-          <select
-            value={selectedModelId}
-            onChange={(e) => onModelChange(e.target.value as ModelId)}
-            className="text-[12px] bg-white border border-slate-200 rounded-lg pl-3 pr-8 py-1 font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition-all focus:outline-hidden focus:ring-1 focus:ring-sky-500 cursor-pointer appearance-none max-w-[150px] sm:max-w-[200px] truncate"
-          >
-            {Object.keys(KIE_MODELS).map((modelId) => (
-              <option key={modelId} value={modelId}>
-                {KIE_MODELS[modelId].name}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-450 pointer-events-none" />
+        <div className="flex items-center gap-2">
+          {onOpenDiagnostics && (
+            <button
+              onClick={onOpenDiagnostics}
+              className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium text-sky-600 hover:text-sky-700 hover:bg-sky-50 px-2 py-1 rounded-md transition-all cursor-pointer"
+              title="Запустить диагностику Kie API"
+            >
+              <Activity className="h-3.5 w-3.5" />
+              <span>Диагностика API</span>
+            </button>
+          )}
+
+          {/* Model Dropdown Selection */}
+          <div className="relative">
+            <select
+              value={selectedModelId}
+              onChange={(e) => onModelChange(e.target.value as ModelId)}
+              className="text-[12px] bg-white border border-slate-200 rounded-lg pl-3 pr-8 py-1 font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition-all focus:outline-hidden focus:ring-1 focus:ring-sky-500 cursor-pointer appearance-none max-w-[150px] sm:max-w-[200px] truncate"
+            >
+              {Object.keys(KIE_MODELS).map((modelId) => (
+                <option key={modelId} value={modelId}>
+                  {KIE_MODELS[modelId].name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-450 pointer-events-none" />
+          </div>
         </div>
       </div>
 

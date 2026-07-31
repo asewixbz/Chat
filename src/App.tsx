@@ -6,6 +6,8 @@ import RightSidebar from './components/RightSidebar';
 import ModelSettings from './components/ModelSettings';
 import Markdown from './components/Markdown';
 import AgentDashboard from './components/AgentDashboard';
+import ApiStatusIndicator, { ApiStatusType } from './components/ApiStatusIndicator';
+import ApiDiagnosticModal, { DiagnosticResult } from './components/ApiDiagnosticModal';
 import { copyToClipboard } from './utils/clipboard';
 import { modeRegistry } from './modes/registry';
 
@@ -57,6 +59,52 @@ export default function App() {
   const [isCheckingBalance, setIsCheckingBalance] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
 
+  // --- Kie API Status & Diagnostic States ---
+  const [apiStatus, setApiStatus] = useState<ApiStatusType>('unknown');
+  const [apiLatency, setApiLatency] = useState<number | null>(null);
+  const [diagnosticResult, setDiagnosticResult] = useState<DiagnosticResult | null>(null);
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [isDiagnosticModalOpen, setIsDiagnosticModalOpen] = useState(false);
+
+  // --- Run API Diagnostic Function ---
+  const runApiDiagnostic = async (keyToTest = kieApiKey, modelToTest?: ModelId) => {
+    setIsDiagnosing(true);
+    try {
+      const response = await fetch('/api/kie/diagnose', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          apiKey: keyToTest,
+          modelId: modelToTest || (activeChat ? activeChat.modelId : 'gpt-5-6-sol')
+        })
+      });
+
+      if (response.ok) {
+        const data: DiagnosticResult = await response.json();
+        setDiagnosticResult(data);
+        setApiLatency(data.totalLatencyMs || data.modelCheck?.latencyMs || null);
+        if (data.overallStatus === 'ok') {
+          setApiStatus('connected');
+        } else if (data.overallStatus === 'warning') {
+          setApiStatus('degraded');
+        } else if (data.overallStatus === 'error') {
+          setApiStatus('error');
+        } else {
+          setApiStatus('unconfigured');
+        }
+      } else {
+        setApiStatus('error');
+      }
+    } catch (err) {
+      console.error('Diagnostic call failed:', err);
+      setApiStatus('error');
+    } finally {
+      setIsDiagnosing(false);
+    }
+  };
+
   // --- Check Kie balance function ---
   const checkKieBalance = async (keyToUse = kieApiKey) => {
     if (!keyToUse.trim()) {
@@ -100,9 +148,12 @@ export default function App() {
     localStorage.setItem('kie_api_key', newKey);
     if (newKey.trim()) {
       checkKieBalance(newKey);
+      runApiDiagnostic(newKey);
     } else {
       setKieBalance(null);
       setBalanceError(null);
+      setApiStatus('unconfigured');
+      setDiagnosticResult(null);
     }
   };
 
@@ -131,10 +182,13 @@ export default function App() {
     }
   }, []);
 
-  // --- Check balance on mount ---
+  // --- Initial Diagnostic & Balance check on mount ---
   useEffect(() => {
     if (kieApiKey.trim()) {
       checkKieBalance(kieApiKey);
+      runApiDiagnostic(kieApiKey);
+    } else {
+      runApiDiagnostic(''); // Check env key fallback
     }
   }, []);
 
@@ -642,6 +696,12 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            <ApiStatusIndicator
+              status={apiStatus}
+              latencyMs={apiLatency}
+              onOpenDiagnostics={() => setIsDiagnosticModalOpen(true)}
+              isAgentTheme={true}
+            />
             {activeChat && activeChat.messages.length > 0 && (
               <button
                 onClick={clearCurrentChatMessages}
@@ -663,7 +723,7 @@ export default function App() {
           </div>
         </div>
       ) : (
-        <div className="absolute top-4 left-4 z-30">
+        <div className="absolute top-4 left-4 z-30 flex items-center gap-2">
           <button
             onClick={() => setSidebarOpen(true)}
             className="flex items-center justify-center bg-white/90 hover:bg-white text-slate-700 hover:text-slate-900 shadow-md border border-slate-100 rounded-full h-11 w-11 transition-all focus:outline-hidden cursor-pointer touch-manipulation active:scale-95"
@@ -671,6 +731,12 @@ export default function App() {
           >
             <Menu className="h-5 w-5" />
           </button>
+          <ApiStatusIndicator
+            status={apiStatus}
+            latencyMs={apiLatency}
+            onOpenDiagnostics={() => setIsDiagnosticModalOpen(true)}
+            isAgentTheme={false}
+          />
         </div>
       )}
 
@@ -966,6 +1032,9 @@ export default function App() {
             isOpen={settingsOpen}
             onToggleOpen={() => setSettingsOpen(!settingsOpen)}
             onResetParams={resetActiveChatParams}
+            apiStatus={apiStatus}
+            apiLatency={apiLatency}
+            onOpenDiagnostics={() => setIsDiagnosticModalOpen(true)}
           />
         )}
 
@@ -1015,6 +1084,9 @@ export default function App() {
         isCheckingBalance={isCheckingBalance}
         balanceError={balanceError}
         onCheckBalance={() => checkKieBalance()}
+        apiStatus={apiStatus}
+        apiLatency={apiLatency}
+        onOpenDiagnostics={() => setIsDiagnosticModalOpen(true)}
       />
 
       {/* 5. RIGHT SIDEBAR - PROJECT FILES & AGENT WORKSPACE */}
@@ -1281,6 +1353,18 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 6. API DIAGNOSTIC MODAL */}
+      <ApiDiagnosticModal
+        isOpen={isDiagnosticModalOpen}
+        onClose={() => setIsDiagnosticModalOpen(false)}
+        diagnosticResult={diagnosticResult}
+        isDiagnosing={isDiagnosing}
+        onRunDiagnostic={() => runApiDiagnostic()}
+        selectedModelId={activeChat ? activeChat.modelId : 'gpt-5-6-sol'}
+        kieApiKey={kieApiKey}
+        onOpenKeySettings={() => setSidebarOpen(true)}
+      />
 
     </div>
   );

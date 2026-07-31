@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Chat, ChatMode, KIE_MODELS } from '../types';
-import { Plus, MessageSquare, Trash2, X, AlertCircle, Key, Coins, RefreshCw, Eye, EyeOff, Check, Settings, Bot, Terminal, Code2 } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, X, AlertCircle, Key, Coins, RefreshCw, Eye, EyeOff, Check, Settings, Bot, Terminal, Code2, Activity } from 'lucide-react';
 import { modeRegistry } from '../modes/registry';
+import ApiStatusIndicator, { ApiStatusType } from './ApiStatusIndicator';
 
 interface SidebarProps {
   chats: Chat[];
@@ -20,6 +21,9 @@ interface SidebarProps {
   isCheckingBalance: boolean;
   balanceError: string | null;
   onCheckBalance: () => void;
+  apiStatus?: ApiStatusType;
+  apiLatency?: number | null;
+  onOpenDiagnostics?: () => void;
 }
 
 export default function Sidebar({
@@ -38,7 +42,10 @@ export default function Sidebar({
   kieCurrency,
   isCheckingBalance,
   balanceError,
-  onCheckBalance
+  onCheckBalance,
+  apiStatus = 'unknown',
+  apiLatency = null,
+  onOpenDiagnostics
 }: SidebarProps) {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -233,13 +240,41 @@ export default function Sidebar({
                 </div>
               </div>
             ) : (
-              <button
-                onClick={() => setShowSettings(true)}
-                className="text-[11.5px] font-medium text-sky-400 hover:underline flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                <Settings className="h-3 w-3" />
-                {kieApiKey.trim() ? "Изменить ключ Kie" : "Настроить ключ Kie"}
-              </button>
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="text-[11.5px] font-medium text-sky-400 hover:underline flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <Settings className="h-3 w-3" />
+                  {kieApiKey.trim() ? "Изменить ключ Kie" : "Настроить ключ Kie"}
+                </button>
+                {onOpenDiagnostics && (
+                  <button
+                    onClick={onOpenDiagnostics}
+                    className={`text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer px-2 py-0.5 rounded-md ${
+                      isAgentTheme
+                        ? 'text-slate-300 hover:text-white hover:bg-slate-800'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                    title="Запустить полную диагностику API"
+                  >
+                    <Activity className="h-3 w-3 text-sky-400" />
+                    <span>Диагностика</span>
+                  </button>
+                )}
+              </div>
+            )}
+            
+            {onOpenDiagnostics && (
+              <div className="pt-2 flex items-center justify-between border-t border-slate-200/20">
+                <span className="text-[10px] text-slate-400 font-mono uppercase">Статус подключения:</span>
+                <ApiStatusIndicator
+                  status={apiStatus}
+                  latencyMs={apiLatency}
+                  onOpenDiagnostics={onOpenDiagnostics}
+                  isAgentTheme={isAgentTheme}
+                />
+              </div>
             )}
           </div>
         </div>

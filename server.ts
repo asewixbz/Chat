@@ -559,6 +559,222 @@ async function startServer() {
     }
   });
 
+  // API Route for comprehensive Kie API diagnostics
+  app.post("/api/kie/diagnose", async (req, res) => {
+    const startTime = Date.now();
+    try {
+      const { apiKey: bodyApiKey, modelId } = req.body || {};
+      const envKey = process.env.KIE_API_KEY;
+      
+      let apiKey = (bodyApiKey && typeof bodyApiKey === 'string' ? bodyApiKey : '').trim();
+      let keySource: 'user' | 'env' | 'none' = 'user';
+
+      if (!apiKey && envKey && envKey.trim()) {
+        apiKey = envKey.trim();
+        keySource = 'env';
+      } else if (!apiKey) {
+        keySource = 'none';
+      }
+
+      const maskedKey = apiKey
+        ? (apiKey.length > 8 ? `${apiKey.slice(0, 7)}...${apiKey.slice(-4)}` : '***')
+        : '(отсутствует)';
+
+      const formatValid = apiKey.length >= 8;
+
+      if (!apiKey) {
+        res.json({
+          timestamp: new Date().toISOString(),
+          overallStatus: 'unconfigured',
+          totalLatencyMs: Date.now() - startTime,
+          keyInfo: {
+            configured: false,
+            source: 'none',
+            maskedKey: '(отсутствует)',
+            formatValid: false
+          },
+          creditCheck: {
+            status: 'unconfigured',
+            httpCode: null,
+            latencyMs: 0,
+            balance: null,
+            currency: 'Credits',
+            error: 'Ключ API не передан в запросе и отсутствует в переменной KIE_API_KEY.'
+          },
+          modelCheck: {
+            testedModel: modelId || 'gpt-5-6-sol',
+            endpoint: KIE_MODEL_ENDPOINTS[modelId || 'gpt-5-6-sol'] || `/${modelId || 'gpt-5-6-sol'}/v1/chat/completions`,
+            status: 'unconfigured',
+            httpCode: null,
+            latencyMs: 0,
+            hasContent: false,
+            message: 'Тест модели не выполнялся, так как API-ключ не настроен.',
+            error: null
+          },
+          recommendations: [
+            'Укажите ваш персональный ключ Kie API (sk-kie-...) в настройках интерфейса или в переменной среды KIE_API_KEY.'
+          ]
+        });
+        return;
+      }
+
+      // Step 1: Credit & Auth Check
+      const creditStart = Date.now();
+      let creditStatus: 'ok' | 'error' = 'error';
+      let creditHttpCode: number | null = null;
+      let creditBalance: number | null = null;
+      let creditCurrency = 'Credits';
+      let creditError: string | null = null;
+
+      try {
+        const creditRes = await fetch("https://api.kie.ai/api/v1/chat/credit", {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          }
+        });
+        creditHttpCode = creditRes.status;
+        if (creditRes.ok) {
+          creditStatus = 'ok';
+          const data = await creditRes.json() as any;
+          if (data) {
+            if (typeof data.data === "number") creditBalance = data.data;
+            else if (data.data && typeof data.data.balance === "number") creditBalance = data.data.balance;
+            else if (typeof data.balance === "number") creditBalance = data.balance;
+            else if (typeof data.credits === "number") creditBalance = data.credits;
+            
+            if (data.currency) creditCurrency = data.currency;
+            else if (data.data?.currency) creditCurrency = data.data.currency;
+          }
+        } else {
+          const errText = await creditRes.text();
+          creditError = `HTTP ${creditRes.status}: ${creditRes.statusText}${errText ? ` - ${errText.slice(0, 150)}` : ''}`;
+        }
+      } catch (err: any) {
+        creditError = `Сетевая ошибка при запросе к /chat/credit: ${err.message}`;
+      }
+      const creditLatencyMs = Date.now() - creditStart;
+
+      // Step 2: Model completion endpoint test
+      const resolvedModelId = modelId || 'gpt-5-6-sol';
+      const endpoint = KIE_MODEL_ENDPOINTS[resolvedModelId] || `/${resolvedModelId}/v1/chat/completions`;
+      const modelStart = Date.now();
+      let modelStatus: 'ok' | 'warning' | 'error' = 'error';
+      let modelHttpCode: number | null = null;
+      let modelHasContent = false;
+      let modelMessage = '';
+      let modelError: string | null = null;
+
+      try {
+        const payload: any = {
+          model: resolvedModelId,
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 5,
+          temperature: 0.1,
+          stream: false
+        };
+
+        const modelRes = await fetch(`https://api.kie.ai${endpoint}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        modelHttpCode = modelRes.status;
+
+        if (modelRes.ok) {
+          const resText = await modelRes.text();
+          if (resText && resText.length > 0) {
+            modelHasContent = true;
+            modelStatus = 'ok';
+            modelMessage = `Модель ${resolvedModelId} ответила корректно (HTTP ${modelRes.status}).`;
+          } else {
+            modelStatus = 'warning';
+            modelMessage = `Эндпоинт ${endpoint} вернул HTTP 200 OK, но тело ответа пустое.`;
+          }
+        } else {
+          const errText = await modelRes.text();
+          modelStatus = 'error';
+          modelError = `HTTP ${modelRes.status}: ${modelRes.statusText}${errText ? ` - ${errText.slice(0, 200)}` : ''}`;
+          modelMessage = `Ошибка эндпоинта модели (${modelRes.status} ${modelRes.statusText})`;
+        }
+      } catch (err: any) {
+        modelStatus = 'error';
+        modelError = `Сетевая ошибка при запросе к ${endpoint}: ${err.message}`;
+        modelMessage = 'Не удалось подключиться к серверу модели';
+      }
+      const modelLatencyMs = Date.now() - modelStart;
+
+      // Overall status determination
+      let overallStatus: 'ok' | 'warning' | 'error' = 'ok';
+      if (creditStatus === 'error' || modelStatus === 'error') {
+        overallStatus = 'error';
+      } else if (modelStatus === 'warning') {
+        overallStatus = 'warning';
+      }
+
+      const recommendations: string[] = [];
+      if (creditHttpCode === 401 || modelHttpCode === 401) {
+        recommendations.push('Ошибка 401 Unauthorized: Ключ API недействителен. Проверьте правильность токена в личном кабинете Kie AI.');
+      }
+      if (creditHttpCode === 403 || modelHttpCode === 403) {
+        recommendations.push('Ошибка 403 Forbidden: Доступ ограничен. Проверьте права и ограничения вашего аккаунта Kie.');
+      }
+      if (creditHttpCode === 429 || modelHttpCode === 429) {
+        recommendations.push('Ошибка 429 Too Many Requests: Превышены лимиты или закончился баланс аккаунта.');
+      }
+      if (modelStatus === 'warning') {
+        recommendations.push('Выбранный эндпоинт вернул пустой отклик. Попробуйте переключиться на другую модель в настройках (например, Claude 4.6 или Gemini 3.5).');
+      }
+      if (creditStatus === 'ok' && modelStatus === 'ok') {
+        recommendations.push('Все сетевые тесты прошли успешно! Соединение с Kie API активно и работает без задержек.');
+      }
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        overallStatus,
+        totalLatencyMs: Date.now() - startTime,
+        keyInfo: {
+          configured: true,
+          source: keySource,
+          maskedKey,
+          formatValid
+        },
+        creditCheck: {
+          status: creditStatus,
+          httpCode: creditHttpCode,
+          latencyMs: creditLatencyMs,
+          balance: creditBalance,
+          currency: creditCurrency,
+          error: creditError
+        },
+        modelCheck: {
+          testedModel: resolvedModelId,
+          endpoint,
+          status: modelStatus,
+          httpCode: modelHttpCode,
+          latencyMs: modelLatencyMs,
+          hasContent: modelHasContent,
+          message: modelMessage,
+          error: modelError
+        },
+        recommendations
+      });
+    } catch (error: any) {
+      console.error("Diagnostic endpoint error:", error);
+      res.status(500).json({
+        timestamp: new Date().toISOString(),
+        overallStatus: 'error',
+        totalLatencyMs: Date.now() - startTime,
+        error: error.message || "Внутренняя ошибка сервера при диагностике"
+      });
+    }
+  });
+
   // --- WORKSPACE & AGENT BACKEND API ROUTES (v1) ---
 
   // 1. List / Create Workspaces
