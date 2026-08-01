@@ -775,6 +775,134 @@ async function startServer() {
     }
   });
 
+  // --- SYSTEM UPDATE FROM GITHUB (asewixbz/Chat main) ---
+  
+  app.get("/api/system/update/check", async (req, res) => {
+    try {
+      const currentCommitFile = path.join(process.cwd(), ".current_commit");
+      let currentCommitSha = "";
+      if (fs.existsSync(currentCommitFile)) {
+        currentCommitSha = fs.readFileSync(currentCommitFile, "utf-8").trim();
+      }
+
+      const ghRes = await fetch("https://api.github.com/repos/asewixbz/Chat/commits/main", {
+        headers: {
+          "User-Agent": "NodeApp-Updater",
+          "Accept": "application/vnd.github.v3+json"
+        }
+      });
+
+      if (!ghRes.ok) {
+        throw new Error(`GitHub API HTTP ${ghRes.status}`);
+      }
+
+      const data: any = await ghRes.json();
+      const latestSha = data.sha || "";
+      const commitMessage = data.commit?.message || "Последние изменения";
+      const commitDate = data.commit?.author?.date || new Date().toISOString();
+      const author = data.commit?.author?.name || "asewixbz";
+
+      const isNew = currentCommitSha ? (currentCommitSha !== latestSha) : true;
+
+      res.json({
+        repo: "asewixbz/Chat",
+        branch: "main",
+        latestCommit: {
+          sha: latestSha,
+          shortSha: latestSha.slice(0, 7),
+          message: commitMessage.split('\n')[0],
+          date: commitDate,
+          author
+        },
+        currentCommitSha: currentCommitSha ? currentCommitSha.slice(0, 7) : "неизвестно",
+        hasUpdate: isNew
+      });
+    } catch (err: any) {
+      console.error("Error checking GitHub update:", err);
+      res.status(500).json({ error: err.message || "Ошибка проверки обновлений с GitHub" });
+    }
+  });
+
+  app.post("/api/system/update/apply", async (req, res) => {
+    const tempDir = "/tmp/chat_github_update";
+    try {
+      // 1. Download archive & unzip
+      const downloadCmd = `rm -rf ${tempDir} && mkdir -p ${tempDir} && curl -sL https://github.com/asewixbz/Chat/archive/refs/heads/main.zip -o ${tempDir}/main.zip && unzip -q -o ${tempDir}/main.zip -d ${tempDir}`;
+      
+      await new Promise<void>((resolve, reject) => {
+        exec(downloadCmd, (err, stdout, stderr) => {
+          if (err) return reject(new Error(`Ошибка скачивания: ${stderr || err.message}`));
+          resolve();
+        });
+      });
+
+      const extractedDir = path.join(tempDir, "Chat-main");
+      if (!fs.existsSync(extractedDir)) {
+        throw new Error("Не удалось найти распакованную папку Chat-main.");
+      }
+
+      // Get latest commit sha from GitHub API
+      let latestSha = "";
+      try {
+        const ghRes = await fetch("https://api.github.com/repos/asewixbz/Chat/commits/main", {
+          headers: { "User-Agent": "NodeApp-Updater" }
+        });
+        if (ghRes.ok) {
+          const commitData: any = await ghRes.json();
+          latestSha = commitData.sha || "";
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      // 2. Recursively copy files from extractedDir to process.cwd(), excluding node_modules, .env, .git
+      const copyRecursive = (src: string, dest: string) => {
+        const entries = fs.readdirSync(src, { withFileTypes: true });
+        for (const entry of entries) {
+          if (["node_modules", ".git", ".env", ".env.local", "dist"].includes(entry.name)) {
+            continue;
+          }
+          const srcPath = path.join(src, entry.name);
+          const destPath = path.join(dest, entry.name);
+
+          if (entry.isDirectory()) {
+            if (!fs.existsSync(destPath)) {
+              fs.mkdirSync(destPath, { recursive: true });
+            }
+            copyRecursive(srcPath, destPath);
+          } else {
+            fs.copyFileSync(srcPath, destPath);
+          }
+        }
+      };
+
+      copyRecursive(extractedDir, process.cwd());
+
+      // 3. Save current commit sha
+      if (latestSha) {
+        fs.writeFileSync(path.join(process.cwd(), ".current_commit"), latestSha, "utf-8");
+      } else {
+        fs.writeFileSync(path.join(process.cwd(), ".current_commit"), `updated_${Date.now()}`, "utf-8");
+      }
+
+      // 4. Cleanup
+      try {
+        exec(`rm -rf ${tempDir}`);
+      } catch (e) {
+        // ignore
+      }
+
+      res.json({
+        success: true,
+        message: "Обновление с github.com/asewixbz/Chat (ветка main) успешно загружено и установлено!",
+        latestSha: latestSha ? latestSha.slice(0, 7) : "main"
+      });
+    } catch (err: any) {
+      console.error("Error applying update:", err);
+      res.status(500).json({ error: err.message || "Ошибка установки обновления" });
+    }
+  });
+
   // --- WORKSPACE & AGENT BACKEND API ROUTES (v1) ---
 
   // 1. List / Create Workspaces

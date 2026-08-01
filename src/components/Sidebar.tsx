@@ -3,6 +3,7 @@ import { Chat, ChatMode, KIE_MODELS } from '../types';
 import { Plus, MessageSquare, Trash2, X, AlertCircle, Key, Coins, RefreshCw, Eye, EyeOff, Check, Settings, Bot, Terminal, Code2, Activity } from 'lucide-react';
 import { modeRegistry } from '../modes/registry';
 import ApiStatusIndicator, { ApiStatusType } from './ApiStatusIndicator';
+import GithubUpdater from './GithubUpdater';
 
 interface SidebarProps {
   chats: Chat[];
@@ -106,7 +107,7 @@ export default function Sidebar({
         } ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         {/* Drawer Header */}
-        <div className={`flex items-center justify-between px-4 py-3.5 border-b ${
+        <div className={`flex items-center justify-between px-4 py-3 border-b ${
           isAgentTheme ? 'border-slate-800 bg-slate-950/80' : 'border-slate-50 bg-slate-50/50'
         }`}>
           <h2 className="text-xs font-bold tracking-tight font-display flex items-center gap-2">
@@ -122,6 +123,11 @@ export default function Sidebar({
           >
             <X className="h-5 w-5" />
           </button>
+        </div>
+
+        {/* --- AUTOMATIC GITHUB UPDATER --- */}
+        <div className={`p-3 border-b ${isAgentTheme ? 'border-slate-800/80 bg-slate-950/90' : 'border-slate-100 bg-slate-50/80'}`}>
+          <GithubUpdater isAgentTheme={isAgentTheme} />
         </div>
 
         {/* --- DYNAMIC MODE SWITCHER --- */}
@@ -178,7 +184,7 @@ export default function Sidebar({
               <span className="text-xs text-slate-400 font-medium animate-pulse">Загрузка...</span>
             ) : kieBalance !== null ? (
               <span className={`text-lg font-bold font-mono tracking-tight ${isAgentTheme ? 'text-white' : 'text-slate-800'}`}>
-                {kieBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
+                {kieBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}{" "}
                 <span className="text-[10px] font-semibold text-slate-400 font-sans">{kieCurrency}</span>
               </span>
             ) : balanceError ? (

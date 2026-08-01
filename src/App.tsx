@@ -572,23 +572,41 @@ export default function App() {
         chatTitle: activeChat.title,
       });
 
-      // Send chat context to full-stack backend Express endpoint
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: updatedMessages
-            .filter((m) => !m.isSystem)
-            .map((m) => ({ role: m.role, content: m.content })),
-          modelId: activeChat.modelId,
-          config: decorated.config,
-          apiKey: kieApiKey,
-          workspaceId: decorated.workspaceId,
-          mode: activeMode,
-        }),
-      });
+      let response: Response | null = null;
+      let lastFetchErr: any = null;
+      const maxAttempts = 3;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              messages: updatedMessages
+                .filter((m) => !m.isSystem)
+                .map((m) => ({ role: m.role, content: m.content })),
+              modelId: activeChat.modelId,
+              config: decorated.config,
+              apiKey: kieApiKey,
+              workspaceId: decorated.workspaceId,
+              mode: activeMode,
+            }),
+          });
+          break; // Connected successfully
+        } catch (fetchErr: any) {
+          lastFetchErr = fetchErr;
+          console.warn(`Attempt ${attempt} to connect to /api/chat failed:`, fetchErr);
+          if (attempt < maxAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+          }
+        }
+      }
+
+      if (!response) {
+        throw lastFetchErr || new Error('Не удалось установить связь с сервером.');
+      }
 
       if (!response.ok) {
         const errText = await response.text();
@@ -643,9 +661,26 @@ export default function App() {
 
       setStreamingText('');
 
+      // Auto-refresh Kie balance after successful model completion (immediately and with 1.5s delay for async API sync)
+      if (kieApiKey.trim()) {
+        checkKieBalance(kieApiKey);
+        setTimeout(() => {
+          checkKieBalance(kieApiKey);
+        }, 1500);
+      }
+
     } catch (err: any) {
       console.error('Error generating chat response:', err);
-      setError(err.message || 'Произошла непредвиденная ошибка генерации ответа.');
+      let userErrorMsg = err.message || 'Произошла непредвиденная ошибка генерации ответа.';
+      if (
+        userErrorMsg.includes('Failed to fetch') ||
+        userErrorMsg.includes('NetworkError') ||
+        userErrorMsg.includes('Load failed')
+      ) {
+        userErrorMsg =
+          'Ошибка подключения к локальному серверу (Failed to fetch). Сервер может перезапускаться. Попробуйте еще раз через несколько секунд.';
+      }
+      setError(userErrorMsg);
     } finally {
       setIsGenerating(false);
       setGeneratingChatId(null);
